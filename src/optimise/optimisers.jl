@@ -419,6 +419,43 @@ opt = ADAMW(0.001, (0.89, 0.995), 0.1)
 ADAMW(η = 0.001, β = (0.9, 0.999), decay = 0) =
   Optimiser(ADAM(η, β), WeightDecay(decay))
 
+"""
+    pSGLD(η = 0.001, ρ = 0.99)
+Optimizer using the
+[pSGLD](ttps://arxiv.org/pdf/1512.07666.pdf) algorithm.
+Built on the Flux RMSprop implementation (https://github.com/FluxML/Flux.jl/blob/master/src/optimise/optimisers.jl#L137)
+# Parameters
+- Learning rate (`η`): Amount by which gradients are discounted before updating
+                       the weights.
+- Momentum (`ρ`): Controls the acceleration of gradient descent in the
+                  prominent direction, in effect dampening oscillations.
+# Examples
+```julia
+opt = pSGLD()
+opt = pSGLD(0.002, 0.95)
+```
+"""
+mutable struct pSGLD
+  eta::Float64
+  rho::Float64
+  acc::IdDict
+end
+
+pSGLD(η = 0.001, ρ = 0.99) = pSGLD(η, ρ, IdDict())
+
+function apply!(o::pSGLD, x, Δ)
+  η, ρ = o.eta, o.rho
+  acc = get!(o.acc, x, zero(x))::typeof(x)
+  @. acc = ρ * acc + (1 - ρ) * Δ^2
+  @. Δ *= η / (√acc + ϵ)
+  n = randn(size(Δ))
+  if typeof(n) == Array{Float64,0} || typeof(n) == Array{Float32,0}
+    n = n[1]
+  end
+  @. Δ += convert(typeof(Δ), n).*√(2*η / (√acc + ϵ))
+  return @. Δ
+end
+
 # Compose optimizers
 
 """
@@ -509,7 +546,7 @@ function apply!(o::ExpDecay, x, Δ)
   η, s, decay = o.eta, o.step, o.decay
   n = o.current[x] = get(o.current, x, 0) + 1
   if o.current[x]%s == 0 && count(x -> x%s == 0, values(o.current)) == 1
-    η = max(η * decay^(s / n), o.clip)
+    η = max(η * decay, o.clip)
     o.eta = η
   end
   @. Δ *= η
@@ -534,40 +571,30 @@ function apply!(o::WeightDecay, x, Δ)
   @. Δ += wd * x
 end
 
+"""
+    ClipValue(thresh)
 
+Clip gradients when their absolute value exceeds `thresh`.
 """
-    pSGLD(η = 0.001, ρ = 0.99)
-Optimizer using the
-[pSGLD](ttps://arxiv.org/pdf/1512.07666.pdf) algorithm.
-Built on the Flux RMSprop implementation (https://github.com/FluxML/Flux.jl/blob/master/src/optimise/optimisers.jl#L137)
-# Parameters
-- Learning rate (`η`): Amount by which gradients are discounted before updating
-                       the weights.
-- Momentum (`ρ`): Controls the acceleration of gradient descent in the
-                  prominent direction, in effect dampening oscillations.
-# Examples
-```julia
-opt = pSGLD()
-opt = pSGLD(0.002, 0.95)
-```
-"""
-mutable struct pSGLD
-  eta::Float64
-  rho::Float64
-  acc::IdDict
+mutable struct ClipValue{T}
+    thresh::T
 end
 
-pSGLD(η = 0.001, ρ = 0.99) = pSGLD(η, ρ, IdDict())
+apply!(o::ClipValue, x, Δ) = clamp!(Δ, -o.thresh, o.thresh)
 
-function apply!(o::pSGLD, x, Δ)
-  η, ρ = o.eta, o.rho
-  acc = get!(o.acc, x, zero(x))::typeof(x)
-  @. acc = ρ * acc + (1 - ρ) * Δ^2
-  @. Δ *= η / (√acc + ϵ)
-  n = randn(size(Δ))
-  if typeof(n) == Array{Float64,0} || typeof(n) == Array{Float32,0}
-    n = n[1]
-  end
-  @. Δ += convert(typeof(Δ), n).*√(2*η / (√acc + ϵ))
-  return @. Δ
+"""
+    ClipNorm(thresh)
+
+Clip gradients when their L2 norm exceeds `thresh`.
+"""
+mutable struct ClipNorm{T}
+    thresh::T
+end
+
+function apply!(o::ClipNorm, x, Δ)
+    Δnrm = norm(Δ)
+    if Δnrm > o.thresh
+        rmul!(Δ, o.thresh / Δnrm)
+    end
+    return Δ
 end
