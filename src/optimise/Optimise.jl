@@ -1,12 +1,9 @@
 module Optimise
 
-using LinearAlgebra
-
 export train!, update!,
-	Descent, ADAM, Momentum, Nesterov, RMSProp,
+	SGD, Descent, ADAM, Momentum, Nesterov, RMSProp,
 	ADAGrad, AdaMax, ADADelta, AMSGrad, NADAM, ADAMW,RADAM, 
-	InvDecay, ExpDecay, WeightDecay, stop, Optimiser,
-	ClipValue, ClipNorm
+	InvDecay, ExpDecay, WeightDecay, stop, Optimiser, pSGLD
 
 include("optimisers.jl")
 include("train.jl")
